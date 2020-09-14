@@ -1,6 +1,8 @@
 #import <Cordova/CDV.h>
 #import <Cordova/CDVConfigParser.h>
 #import <Cordova/CDVWebViewEngineProtocol.h>
+#import <Cordova/NSDictionary+CordovaPreferences.h>
+#import <WebKit/WKWebView.h>
 #import "CodePush.h"
 #import "CodePushPackageMetadata.h"
 #import "CodePushPackageManager.h"
@@ -20,6 +22,8 @@ bool pendingInstall = false;
 NSDate* lastResignedDate;
 NSString* const DeploymentKeyPreference = @"codepushdeploymentkey";
 NSString* const PublicKeyPreference = @"codepushpublickey";
+NSString* const IdentifierCodePushPath = @"codepush/deploy/versions";
+NSString* lastLoadedURL = @"";
 StatusReport* rollbackStatusReport = nil;
 
 - (void)getBinaryHash:(CDVInvokedUrlCommand *)command {
@@ -407,10 +411,41 @@ StatusReport* rollbackStatusReport = nil;
     // use the WebViewEngine for performing navigations only if the host app
     // is running 4.0.0+, and fallback to directly using the WebView otherwise.
 #if (WK_WEB_VIEW_ONLY && defined(__CORDOVA_4_0_0)) || defined(__CORDOVA_4_0_0)
-    [self.webViewEngine loadRequest:[NSURLRequest requestWithURL:url]];
+    [self loadPluginRequest:[NSURLRequest requestWithURL:url]];
 #else
     [(UIWebView*)self.webView loadRequest:[NSURLRequest requestWithURL:url]];
 #endif
+}
+
+- (id)loadPluginRequest:(NSURLRequest *)request {
+    if (request.URL.fileURL) {
+        NSLog(@"load: %@", request.URL.fileURL);
+        NSDictionary* settings = self.commandDelegate.settings;
+        NSString *bind = [settings cordovaSettingForKey:@"hostname"];
+        if(bind == nil){
+            bind = @"localhost";
+        }
+        NSString *scheme = [settings cordovaSettingForKey:@"scheme"];
+        if(scheme == nil || [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]  || [scheme isEqualToString:@"file"]){
+            scheme = @"app";
+        }
+        NSString *CDV_LOCAL_SERVER = [NSString stringWithFormat:@"%@://%@", scheme, bind];
+
+        NSURL* startURL = [NSURL URLWithString:((CDVViewController *)self.viewController).startPage];
+        NSString* startFilePath = [self.commandDelegate pathForResource:[startURL path]];
+        NSURL *url = [[NSURL URLWithString:CDV_LOCAL_SERVER] URLByAppendingPathComponent:request.URL.path];
+        if ([request.URL.path isEqualToString:startFilePath]) {
+            url = [NSURL URLWithString:CDV_LOCAL_SERVER];
+        }
+        if(request.URL.query) {
+            url = [NSURL URLWithString:[@"?" stringByAppendingString:request.URL.query] relativeToURL:url];
+        }
+        if(request.URL.fragment) {
+            url = [NSURL URLWithString:[@"#" stringByAppendingString:request.URL.fragment] relativeToURL:url];
+        }
+        request = [NSURLRequest requestWithURL:url];
+    }
+    return [(WKWebView*)self.webViewEngine loadRequest:request];
 }
 
 + (Boolean) hasIonicWebViewEngine:(id<CDVWebViewEngineProtocol>) webViewEngine {
@@ -488,7 +523,7 @@ StatusReport* rollbackStatusReport = nil;
         if ([CodePush hasIonicWebViewEngine: self.webViewEngine]) {
             [CodePush setServerBasePath:URL.path webView:self.webViewEngine];
         } else {
-            ((CDVViewController *)self.viewController).startPage = [URL absoluteString];
+            [self loadURL: URL];
         }
     }
 }
