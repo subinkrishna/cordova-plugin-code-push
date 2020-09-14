@@ -418,8 +418,8 @@ StatusReport* rollbackStatusReport = nil;
 }
 
 - (id)loadPluginRequest:(NSURLRequest *)request {
+    NSLog(@"load: %@", request.URL);
     if (request.URL.fileURL) {
-        NSLog(@"load: %@", request.URL.fileURL);
         NSDictionary* settings = self.commandDelegate.settings;
         NSString *bind = [settings cordovaSettingForKey:@"hostname"];
         if(bind == nil){
